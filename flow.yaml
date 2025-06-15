@@ -1,0 +1,135 @@
+id: kestra-plugin-showcase
+namespace: hackathon.minimal
+description: Ultra-simple workflow that actually works
+
+variables:
+  project_name: "Kestra Plugin Demo"
+
+triggers:
+  - id: demo_trigger
+    type: io.kestra.plugin.core.trigger.Schedule
+    cron: "*/5 * * * *"
+
+tasks:
+  
+  - id: api_check
+    type: io.kestra.plugin.core.http.Request
+    uri: "https://httpbin.org/json"
+    method: GET
+
+  
+  - id: analyze_data
+    type: io.kestra.plugin.scripts.python.Script
+    script: |
+      import json
+      
+    
+      api_code = {{ outputs.api_check.code }}
+      status = "healthy" if api_code == 200 else "failed"
+      score = 100 if api_code == 200 else 0
+      
+      result = {
+          "api_status": status,
+          "response_code": api_code,
+          "health_score": score
+      }
+      
+      print(json.dumps(result))
+
+ 
+  - id: generate_reports
+    type: io.kestra.plugin.scripts.shell.Commands
+    outputFiles:
+      - api_report.html
+      - summary.json
+    commands:
+      - |
+        # Create simple JSON
+        cat > summary.json << 'EOF'
+        {
+          "project": "{{ vars.project_name }}",
+          "execution_id": "{{ execution.id }}",
+          "timestamp": "{{ execution.startDate }}",
+          "api_code": {{ outputs.api_check.code }},
+          "status": "{{ outputs.api_check.code == 200 and 'healthy' or 'failed' }}"
+        }
+        EOF
+        
+        # Create simple HTML
+        cat > api_report.html << 'EOF'
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>{{ vars.project_name }}</title>
+            <style>
+                body { 
+                    font-family: Arial; 
+                    background: linear-gradient(135deg, #667eea, #764ba2); 
+                    color: white; 
+                    padding: 40px; 
+                    text-align: center;
+                }
+                .card { 
+                    background: rgba(255,255,255,0.1); 
+                    padding: 30px; 
+                    border-radius: 15px; 
+                    margin: 20px auto;
+                    max-width: 600px;
+                }
+                .metric { 
+                    font-size: 3em; 
+                    font-weight: bold; 
+                    color: #00ff88; 
+                }
+            </style>
+        </head>
+        <body>
+            <div class="card">
+                <h1>{{ vars.project_name }}</h1>
+                <p>Generated: {{ execution.startDate | date("HH:mm:ss") }}</p>
+            </div>
+            
+            <div class="card">
+                <h2>API Status</h2>
+                <div class="metric">{{ outputs.api_check.code == 200 and 'HEALTHY' or 'FAILED' }}</div>
+                <p>Response Code: {{ outputs.api_check.code }}</p>
+            </div>
+            
+            <div class="card">
+                <h2>Health Score</h2>
+                <div class="metric">{{ outputs.api_check.code == 200 and '100' or '0' }}%</div>
+                <p>System performance rating</p>
+            </div>
+            
+            <div class="card">
+                <p>Execution ID: {{ execution.id }}</p>
+                <p>Powered by Kestra</p>
+            </div>
+        </body>
+        </html>
+        EOF
+        
+        echo "Reports generated!"
+
+  
+  - id: final_log
+    type: io.kestra.plugin.core.log.Log
+    message: |
+      ✅ Execution Complete!
+      API Status: {{ outputs.api_check.code }}
+      Files: api_report.html, summary.json
+      Execution: {{ execution.id }}
+
+outputs:
+  - id: api_status_code
+    type: INT
+    value: "{{ outputs.api_check.code }}"
+  - id: report_file
+    type: STRING
+    value: "{{ outputs.generate_reports.outputFiles['api_report.html'] }}"
+  - id: summary_file
+    type: STRING
+    value: "{{ outputs.generate_reports.outputFiles['summary.json'] }}"
+  - id: execution_summary
+    type: STRING
+    value: "API check completed with status {{ outputs.api_check.code }}"
